@@ -1,0 +1,383 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Application CloudFormation Template
+
+# Metadata
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Project Configuration"
+        Parameters:
+          - Project
+          - Environment
+
+      -
+        Label:
+          default: "Elastic Beanstalk Configuration"
+        Parameters:
+          - SolutionStackName
+          - EC2InstanceType
+          - EBSStorageSize
+          - KeyName
+          - InstanceProfile
+          - InstanceSecurityGroup
+          - ELBSecurityGroup
+          - VPC
+          - ELBSubnets
+          - EC2Subnets
+
+    ParameterLabels:
+      Project:
+        default: Name of Project
+      Environment:
+        default: Name of environment
+      SolutionStackName:
+        default: Name of Elasticbeanstalk Solution
+      EC2InstanceType:
+        default: EC2 instance type
+      EBSStorageSize:
+        default: EC2 instance EBS storage size
+      KeyName:
+        default: EC2 key pair
+      InstanceProfile:
+        default: Instance profile (Role) for EC2
+      InstanceSecurityGroup:
+        default: Security group for EC2
+      ELBSecurityGroup:
+        default: Security group for ELB
+      VPC:
+        default: VPC to provisin EB applcation
+      ELBSubnets:
+        default: List of subnets to provision ELB
+      EC2Subnets:
+        default: List of subnets to provision EC2
+
+# Custom Variable for the environment
+Parameters:
+  # Keypair should be manually created prior to create cloudformation stack(EC2 -> KeyPair)
+  Project:
+    Description: Specify a project name -lowercase-.
+    Type: String
+    AllowedPattern: ^[a-z-]*$
+
+  Environment:
+    Description: Specify a environment type.
+    Type: String
+    AllowedValues:
+      - test
+      - stag
+      - prod
+
+  SolutionStackName:
+    Description: Specify Elsticbeanstak Solution stack
+    Type: String
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the AWS Elastic Beanstalk instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair
+
+  EC2InstanceType:
+    Description: Specify EC2 instance type
+    Type: String
+    ConstraintDescription: must be a valid EC2 instance type.
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m5.large
+      - m5.xlarge
+
+  InstanceProfile:
+    Description: Specify EC2 instance profile ARN
+    Type: String
+
+  InstanceSecurityGroup:
+    Description: Specify VPC security group id to attach to EC2
+    Type: String
+
+  ELBSecurityGroup:
+    Description: Specify VPC security group id to attach to ELB
+    Type: String
+
+  EBSStorageSize:
+    Description: Specify EC2 instance EBS storage size.
+    Type: Number
+    Default: 8
+  VPC:
+    Description: Specify a VPC ID to provision EB applcation
+    Type: String
+  ELBSubnets:
+    Description: Specify a list of subnets to provision ELB (separated by ",")
+    Type: String
+
+  EC2Subnets:
+    Description: Specify a list of subnets to provision EC2 (separated by ",")
+    Type: String
+
+Resources:
+  # Elastic Beanstalk
+  EBApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      # Update Required: Naming Convention
+      ApplicationName: !Ref Project
+  EBEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref EBApplication
+      # Update required: Naming Convention
+      EnvironmentName: !Join ['-', [!Ref EBApplication, !Ref Environment]]
+
+      # the full list of Option Settings can be found in http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/command-options-general.html
+      OptionSettings:
+        # Auto Scaling Launch Configuration
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: EC2KeyName # SSH-Key to access to the EC2 instnaces created by Elastc Beanstalk
+          Value: !Ref KeyName
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: IamInstanceProfile # Instnace Profile which contains IAM roles which gives EC2 permissions to access other AWS resources
+          Value: !Ref InstanceProfile
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: InstanceType
+          Value: !Ref EC2InstanceType
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: SecurityGroups
+          Value: !Ref InstanceSecurityGroup # Global Common SG and custom SG created by CloudFormation
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: RootVolumeType
+          Value: gp2
+        -
+          Namespace: aws:autoscaling:launchconfiguration
+          OptionName: RootVolumeSize
+          Value: !Ref EBSStorageSize #GB
+
+        # Auto Scaling Group
+        -
+          Namespace: aws:autoscaling:asg
+          OptionName: Availability Zones
+          Value: Any
+        -
+          Namespace: aws:autoscaling:asg
+          OptionName: Cooldown
+          Value: 360 #seconds
+        -
+          Namespace: aws:autoscaling:asg
+          OptionName: MinSize
+          Value: 1 #instance
+        -
+          Namespace: aws:autoscaling:asg
+          OptionName: MaxSize
+          Value: 2 #instance
+
+        # Auto Scaling Trigger
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: MeasureName
+          Value: CPUUtilization
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: Statistic
+          Value: Average
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: Unit
+          Value: Percent
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: Period
+          Value: 5 #minutes - How frequently Amazon CloudWatch measures the metrics for your trigger
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: BreachDuration
+          Value: 5 #minutes - The amount of time used to determine the existence of a breach
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: UpperThreshold
+          Value: 60
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: UpperBreachScaleIncrement
+          Value: 1 #instance
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: LowerThreshold
+          Value: 30
+        -
+          Namespace: aws:autoscaling:trigger
+          OptionName: LowerBreachScaleIncrement
+          Value: -1 #instance
+
+        # Auto Scaling Update Policy
+        # When a configuration change requires instances to be replaced
+        -
+          Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: RollingUpdateEnabled
+          Value: true
+        -
+          Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: RollingUpdateType
+          Value: Health
+        -
+          Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: MaxBatchSize
+          Value: 1 #instance
+        -
+          Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: MinInstancesInService
+          Value: 1 #instance
+
+        # Application Health Check
+        -
+          Namespace: aws:elasticbeanstalk:application
+          OptionName: Application Healthcheck URL
+          Value: /api/healthcheck/
+
+        # Monitoring
+        # Configure your environment to terminate EC2 instances that fail health checks.
+        -
+          Namespace: aws:elasticbeanstalk:monitoring
+          OptionName: Automatically Terminate Unhealthy Instances
+          Value: true
+
+        # Application Deployment Policy
+        # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.rolling-version-deploy.html
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: DeploymentPolicy
+          Value: Rolling
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: BatchSizeType
+          Value: Fixed
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: BatchSize
+          Value: 1
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: Timeout
+          Value: 600 # seconds
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: IgnoreHealthCheck
+          Value: false
+        -
+          Namespace: aws:elasticbeanstalk:command
+          OptionName: HealthCheckSuccessThreshold
+          Value: OK
+
+        # Environment Architecture
+        -
+          Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: LoadBalanced
+        -
+          Namespace: aws:elasticbeanstalk:environment
+          OptionName: LoadBalancerType
+          Value: application
+
+        # VPC
+        -
+          Namespace: aws:ec2:vpc
+          OptionName: VPCId
+          Value: !Ref VPC
+        -
+          Namespace: aws:ec2:vpc
+          OptionName: Subnets
+          Value: !Ref EC2Subnets
+        -
+          Namespace: aws:ec2:vpc
+          OptionName: ELBSubnets
+          Value: !Ref ELBSubnets
+
+        # Managed Actions
+        # Configure managed platform updates for your environment.
+        -
+          Namespace: aws:elasticbeanstalk:managedactions
+          OptionName: ManagedActionsEnabled
+          Value: false
+
+        # Application Elastic Load Balancer
+        -
+          Namespace: aws:elbv2:loadbalancer
+          OptionName: ManagedSecurityGroup
+          Value: !Ref ELBSecurityGroup
+
+        -
+          Namespace: aws:elbv2:loadbalancer
+          OptionName: SecurityGroups
+          Value: !Ref ELBSecurityGroup
+
+        # ALB listener
+        -
+          Namespace: aws:elbv2:listener:default
+          OptionName: ListenerEnabled
+          Value: true
+        # -
+        #   Namespace: aws:elbv2:listener:443
+        #   OptionName: DefaultProcess
+        #   Value: default
+        # -
+        #   Namespace: aws:elbv2:listener:443
+        #   OptionName: ListenerEnabled
+        #   Value: true
+        # -
+        #   Namespace: aws:elbv2:listener:443
+        #   OptionName: Protocol
+        #   Value: HTTPS
+        # -
+        #   Namespace: aws:elbv2:listener:443
+        #   OptionName: SSLCertificateArns
+        #   Value: !Ref SSLCertificateArns
+
+        # Default process
+        -
+          Namespace: aws:elasticbeanstalk:environment:process:default
+          OptionName: HealthCheckPath
+          Value: /
+        -
+          Namespace: aws:elasticbeanstalk:environment:process:default
+          OptionName: Port
+          Value: 80
+
+        # CloudWatch Logs Stream
+        -
+          Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: StreamLogs
+          Value: true
+
+        -
+          Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: DeleteOnTerminate
+          Value: false
+
+        -
+          Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: RetentionInDays
+          Value: 365
+
+      # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/concepts.platforms.html
+      SolutionStackName: !Ref SolutionStackName
+      Tags:
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+        -
+          Key: Environment
+          Value: !Ref Environment
+    DependsOn:
+      - EBApplication
+
+Outputs:
+  EBEndPoint:
+    Description: EB End Point
+    Value: !GetAtt EBEnvironment.EndpointURL
+    Export:
+      Name: !Sub ${AWS::StackName}-EBEndPoint

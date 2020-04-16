@@ -65,7 +65,7 @@ Parameters:
     Type: String
     AllowedValues:
       - test
-      - stag
+      - beta
       - prod
 
   VPCCIDR:

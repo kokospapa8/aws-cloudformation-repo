@@ -33,6 +33,7 @@ Metadata:
         Label:
           default: "Elastic Beanstalk Configuration"
         Parameters:
+          - SolutionStackName
           - EBTemplateS3URL
           - EC2InstanceType
           - EBSStorageSize
@@ -58,6 +59,8 @@ Metadata:
         default: Name of Project
       Environment:
         default: Name of environment
+      SolutionStackName:
+        default: Name of Elasticbeanstalk Solution
       EBTemplateS3URL:
         default: S3 URL of EB Template
       EC2InstanceType:
@@ -117,8 +120,13 @@ Parameters:
     Type: String
     AllowedValues:
       - test
-      - stag
+      - beta
       - prod
+  # https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-supported.html#platforms-supported.mcdocker
+  # use aws cli to list available stacks : aws elasticbeanstalk list-available-solution-stacks
+  SolutionStackName:
+    Description: Specify Elsticbeanstak Solution stack
+    Type: String
 
   EBTemplateS3URL:
     Description: S3 URL of EB Template.
@@ -323,7 +331,7 @@ Resources:
       Parameters:
         Project: !Join ['-', [!Ref Project, "api"]]
         Environment: !Ref Environment
-        SolutionStackName: 64bit Amazon Linux 2018.03 v2.16.0 running Multi-container Docker 18.06.1-ce (Generic)
+        SolutionStackName: !Ref SolutionStackName
         EC2InstanceType: !Ref EC2InstanceType
         EBSStorageSize: !Ref EBSStorageSize
         KeyName: !Ref KeyName
@@ -340,7 +348,6 @@ Resources:
       - InstanceProfile
       - InstanceSecurityGroup
       - ELBSecurityGroup
-
 
   # RDS (Aurora MySQL)
   RDSSecurityGroup:
@@ -408,7 +415,7 @@ Resources:
       DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroup
       DBSubnetGroupName: !Ref RDSSubnetGroup
       Engine: aurora-mysql
-      MasterUsername: master
+      MasterUsername: admin
       MasterUserPassword: !Ref RDSMasterPassword
       PreferredBackupWindow: 13:00-14:00
       PreferredMaintenanceWindow: sun:14:00-sun:15:0

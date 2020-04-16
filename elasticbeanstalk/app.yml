@@ -1,0 +1,787 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Application CloudFormation Template
+
+# Metadata
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Project Configuration"
+        Parameters:
+          - Project
+          - Environment
+
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - NetworkTemplateS3URL
+          - VPCCIDR
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+          - PublicSubnet3CIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+          - PrivateSubnet3CIDR
+          - PrivateSubnetNAT1CIDR
+          - PrivateSubnetNAT2CIDR
+          - PrivateSubnetNAT3CIDR
+          - DedicatedNAT
+
+      -
+        Label:
+          default: "Elastic Beanstalk Configuration"
+        Parameters:
+          - EBTemplateS3URL
+          - EC2InstanceType
+          - EBSStorageSize
+          - KeyName
+      -
+        Label:
+          default: "RDS Configuration"
+        Parameters:
+          - RDSInstanceType
+          - RDSMasterPassword
+          - RDSBackupRetention
+
+      -
+        Label:
+          default: "Redis Configuration"
+        Parameters:
+          - RedisInstanceType
+          - RedisEngineVersion
+          - RedisBackupRetention
+
+    ParameterLabels:
+      Project:
+        default: Name of Project
+      Environment:
+        default: Name of environment
+      EBTemplateS3URL:
+        default: S3 URL of EB Template
+      EC2InstanceType:
+        default: EC2 instance type
+      EBSStorageSize:
+        default: EC2 instance EBS storage size
+      KeyName:
+        default: EC2 key pair
+      RDSInstanceType:
+        default: RDS instance type
+      RDSMasterPassword:
+        default: RDS database master password
+      RDSBackupRetention:
+        default: RDS backup retention period
+      RedisInstanceType:
+        default: Redis instance type
+      RedisEngineVersion:
+        default: Redis engine version
+      RedisBackupRetention:
+        default: Redis backup retention period
+      NetworkTemplateS3URL:
+        default: S3 URL of Network Template
+      DedicatedNAT:
+        default: Dedicated NAT gateways
+      VPCCIDR:
+        default: VPC CIDR
+      PublicSubnet1CIDR:
+        default: Public Subnet AZ1
+      PublicSubnet2CIDR:
+        default: Public Subnet AZ2
+      PublicSubnet3CIDR:
+        default: Public Subnet AZ3
+      PrivateSubnet1CIDR:
+        default: Private Subnet AZ1
+      PrivateSubnet2CIDR:
+        default: Private Subnet AZ2
+      PrivateSubnet3CIDR:
+        default: Private Subnet AZ3
+      PrivateSubnetNAT1CIDR:
+        default: Private NAT Subnet AZ1
+      PrivateSubnetNAT2CIDR:
+        default: Private NAT Subnet AZ2
+      PrivateSubnetNAT3CIDR:
+        default: Private NAT Subnet AZ3
+
+
+# Custom Variable for the environment
+Parameters:
+  # Keypair should be manually created prior to create cloudformation stack(EC2 -> KeyPair)
+  Project:
+    Description: Specify a project name -lowercase-.
+    Type: String
+    AllowedPattern: ^[a-z]*$
+
+  Environment:
+    Description: Specify a environment type.
+    Type: String
+    AllowedValues:
+      - test
+      - stag
+      - prod
+
+  EBTemplateS3URL:
+    Description: S3 URL of EB Template.
+    Type: String
+    AllowedPattern : ".+"
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the AWS Elastic Beanstalk instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair
+
+  EC2InstanceType:
+    Description: Specify EC2 instance type
+    Type: String
+    ConstraintDescription: must be a valid EC2 instance type.
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m5.large
+      - m5.xlarge
+
+  EBSStorageSize:
+    Description: Specify EC2 instance EBS storage size.
+    Type: Number
+    Default: 8
+
+  RDSInstanceType:
+    Description: Specify RDS instance type.
+    Type: String
+    ConstraintDescription: must be a valid RDS instance type.
+    Default: db.t2.medium
+    AllowedValues:
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+      - db.m5.large
+      - db.m5.xlarge
+
+  RDSMasterPassword:
+    Description: Specify a RDS database master password. Special characters and spaces are not allowed.
+    Type: String
+    NoEcho: true
+    MinLength: 0
+    MaxLength: 25
+    AllowedPattern: ^[a-zA-Z0-9]*$
+
+  RDSBackupRetention:
+    Description: The number of days for which automated backups are retained. From 0 to 35 days.
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+
+  RedisInstanceType:
+      Description: Specify Redis instance type.
+      Type: String
+      ConstraintDescription: must be a valid Redis instance type.
+      Default: cache.t2.micro
+      AllowedValues:
+        - cache.t2.micro
+        - cache.t2.small
+        - cache.t2.medium
+        - cache.m5.large
+        - cache.m5.xlarge
+
+  RedisEngineVersion:
+    Description: Specify Redis instance engine version.
+    Type: String
+    ConstraintDescription: must be a valid Redis Engine version.
+    Default: 3.2.6
+    AllowedValues:
+       - 5.0.0
+       - 4.0.10
+       - 3.2.10
+       - 3.2.6
+
+  RedisBackupRetention:
+    Description: The number of days for which automated backups are retained.
+    Type: Number
+    Default: 1
+    AllowedValues:
+       - 1
+       - 2
+       - 3
+       - 4
+       - 5
+       - 6
+       - 7
+
+  NetworkTemplateS3URL:
+    Description: S3 URL of Network Template.
+    Type: String
+    AllowedPattern : ".+"
+
+  VPCCIDR:
+    Description: VPC CIDR block.
+    Type: String
+    Default: 10.10.0.0/16
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  # Public Subnets
+  PublicSubnet1CIDR:
+    Description: Public subnet 1 CIDR block.
+    Type: String
+    Default: 10.10.0.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PublicSubnet2CIDR:
+    Description: Public subnet 2 CIDR block.
+    Type: String
+    Default: 10.10.64.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PublicSubnet3CIDR:
+    Description: Public subnet 3 CIDR block.
+    Type: String
+    Default: 10.10.128.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  # Private Subnets
+  PrivateSubnet1CIDR:
+    Description: Private subnet 1 CIDR block.
+    Type: String
+    Default: 10.10.16.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PrivateSubnet2CIDR:
+    Description: Private subnet 2 CIDR block.
+    Type: String
+    Default: 10.10.80.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PrivateSubnet3CIDR:
+    Description: Private subnet 3 CIDR block.
+    Type: String
+    Default: 10.10.144.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  # Private NAT Subnets
+  PrivateSubnetNAT1CIDR:
+    Description: Private subnet NAT 1 CIDR block.
+    Type: String
+    Default: 10.10.32.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PrivateSubnetNAT2CIDR:
+    Description: Private subnet NAT 2 CIDR block.
+    Type: String
+    Default: 10.10.96.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  PrivateSubnetNAT3CIDR:
+    Description: Private subnet NAT 3 CIDR block.
+    Type: String
+    Default: 10.10.160.0/20
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x and subnet of VPC.
+
+  DedicatedNAT:
+    Description: Select "true" if you want to use dedicated ($) NAT gateways per subnet.
+    Type: String
+    AllowedValues:
+      - yes
+      - no
+
+Resources:
+  # Network
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        Project: !Ref Project
+        EnvironmentName: !Ref Environment
+        DedicatedNAT: !Ref DedicatedNAT
+        VPCCIDR: !Ref VPCCIDR
+        PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
+        PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
+        PublicSubnet3CIDR: !Ref PublicSubnet3CIDR
+        PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
+        PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+        PrivateSubnet3CIDR: !Ref PrivateSubnet3CIDR
+        PrivateSubnetNAT1CIDR: !Ref PrivateSubnetNAT1CIDR
+        PrivateSubnetNAT2CIDR: !Ref PrivateSubnetNAT2CIDR
+        PrivateSubnetNAT3CIDR: !Ref PrivateSubnetNAT3CIDR
+      TemplateURL: !Ref NetworkTemplateS3URL
+      TimeoutInMinutes: 15
+
+  # API EB Stack
+  APIEBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        Project: !Join ['-', [!Ref Project, "api"]]
+        Environment: !Ref Environment
+        SolutionStackName: 64bit Amazon Linux 2018.03 v2.16.0 running Multi-container Docker 18.06.1-ce (Generic)
+        EC2InstanceType: !Ref EC2InstanceType
+        EBSStorageSize: !Ref EBSStorageSize
+        KeyName: !Ref KeyName
+        InstanceProfile: !GetAtt InstanceProfile.Arn
+        InstanceSecurityGroup: !GetAtt InstanceSecurityGroup.GroupId
+        ELBSecurityGroup: !Ref ELBSecurityGroup
+        VPC: !GetAtt NetworkStack.Outputs.VPCId
+        ELBSubnets: !Join [',', [!GetAtt NetworkStack.Outputs.PublicSubnet1, !GetAtt NetworkStack.Outputs.PublicSubnet2, !GetAtt NetworkStack.Outputs.PublicSubnet3]]
+        EC2Subnets: !Join [',', [!GetAtt NetworkStack.Outputs.PrivateSubnetNAT1, !GetAtt NetworkStack.Outputs.PrivateSubnetNAT2, !GetAtt NetworkStack.Outputs.PrivateSubnetNAT3]]
+      TemplateURL: !Ref EBTemplateS3URL
+      TimeoutInMinutes: 15
+    DependsOn:
+      - NetworkStack
+      - InstanceProfile
+      - InstanceSecurityGroup
+      - ELBSecurityGroup
+
+
+  # RDS (Aurora MySQL)
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join ['-', [!Ref Project, !Ref Environment, "rds-sg"]]
+      GroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "RDS", "Security Group"]]
+      SecurityGroupIngress:
+        -
+          IpProtocol: TCP
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+          Description: ElasticBeanstalk Web Server
+        -
+          IpProtocol: TCP
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+          Description: BastionHost
+
+      VpcId: !GetAtt NetworkStack.Outputs.VPCId
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "RDSSecurityGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - InstanceSecurityGroup
+      - BastionSecurityGroup
+      - NetworkStack
+
+  RDSSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "RDS", "Subnet Group"]]
+      SubnetIds:
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet1
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet2
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet3
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "RDSSubnetGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - NetworkStack
+
+  RDSDBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties:
+      Description: "Aurora MySQL Cluster Parameter Group"
+      Family: aurora-mysql5.7
+      Parameters:
+        character_set_database: utf8
+
+  RDSCluster:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      DBClusterIdentifier: !Join ['-', [!Ref Environment, !Ref Project]]
+      DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroup
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      Engine: aurora-mysql
+      MasterUsername: master
+      MasterUserPassword: !Ref RDSMasterPassword
+      PreferredBackupWindow: 13:00-14:00
+      PreferredMaintenanceWindow: sun:14:00-sun:15:0
+      BackupRetentionPeriod: !Ref RDSBackupRetention
+      VpcSecurityGroupIds:
+        - !Ref RDSSecurityGroup
+    DependsOn:
+      - RDSSubnetGroup
+      - RDSDBClusterParameterGroup
+
+  RDSDBParameterGroup:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "Aurora MySQL Parameter Group"
+      Family: aurora-mysql5.7
+      Parameters:
+        sql_mode: IGNORE_SPACE
+
+  RDS:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      DBClusterIdentifier: !Ref RDSCluster
+      DBInstanceClass: !Ref RDSInstanceType
+      Engine: aurora-mysql
+      DBInstanceIdentifier: !Join ['-', [!Ref Environment, !Ref Project]]
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      DBParameterGroupName: !Ref RDSDBParameterGroup
+      PubliclyAccessible: false
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - RDSSecurityGroup
+      - RDSSubnetGroup
+      - RDSCluster
+      - RDSDBParameterGroup
+
+  # S3 Bucket to store media files
+  S3MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-', ["media", !Ref Project, !Ref Environment]]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          -
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # IAM roles assigned to EC2 instnaces
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkMulticontainerDocker
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWorkerTier
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  # IAM Instance profile assigned to EC2 instnaces
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref IAMRole
+    DependsOn: IAMRole
+
+  # IAM Policy to give access to S3 buckets created by CloudFormation
+  IAMS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Join ['-', ["s3", "media", !Ref Project, !Ref Environment]]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:DeleteObject
+              - s3:Get*
+              - s3:List*
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource:
+              - !Join ['', ['arn:aws:s3:::', !Ref 'S3MediaBucket']]
+              - !Join ['', ['arn:aws:s3:::', !Ref 'S3MediaBucket', /*]]
+      Roles:
+        - Ref: IAMRole
+    DependsOn:
+      - S3MediaBucket
+      - IAMRole
+
+  IAMCloudWatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Join ['-', ["CloudWatch", !Ref Project, !Ref Environment]]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource:
+              - arn:aws:logs:*:*:*
+      Roles:
+        - Ref: IAMRole
+    DependsOn:
+      - IAMRole
+
+  IAMSESPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SES_SendMail
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - ses:GetSendQuota
+              - ses:SendEmail
+              - ses:SendRawEmail
+            Resource: '*'
+      Roles:
+        - Ref: IAMRole
+    DependsOn:
+      - IAMRole
+
+  # Security Group assigned to EC2 instnaces
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join ['-', [!Ref Project, !Ref Environment, "ec2-sg"]]
+      GroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "Instance", "Security Group"]]
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+          FromPort: 22
+          ToPort : 22
+          Description: BastionHost
+        -
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
+          FromPort: 80
+          ToPort : 80
+          Description: ELB
+
+      VpcId: !GetAtt NetworkStack.Outputs.VPCId
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "InstanceSecurityGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - BastionSecurityGroup
+      - ELBSecurityGroup
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join ['-', [!Ref Project, !Ref Environment, "bastion-sg"]]
+      GroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "Bastion", "Security Group"]]
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          CidrIp: 123.123.123.123/32
+          FromPort: 22
+          ToPort : 22
+          Description: Office
+        -
+          IpProtocol: tcp
+          CidrIp: 123.123.123.123/32
+          FromPort: 22
+          ToPort : 22
+          Description: VPN
+      VpcId: !GetAtt NetworkStack.Outputs.VPCId
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "BastionSecurityGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - NetworkStack
+
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0d097db2fb6e0f05e
+      InstanceType: t3.nano
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      Monitoring: false
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      SubnetId: !GetAtt NetworkStack.Outputs.PublicSubnet1
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "Bastion"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - BastionSecurityGroup
+
+  EIPBastion:
+    Type: AWS::EC2::EIP
+
+  EIPAssociationBastion:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt EIPBastion.AllocationId
+      InstanceId: !Ref BastionHost
+    DependsOn:
+      - EIPBastion
+      - BastionHost
+
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join ['-', [!Ref Project, !Ref Environment, "elb-sg"]]
+      GroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "ELB", "Security Group"]]
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort : 80
+        -
+          IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort : 443
+
+      VpcId: !GetAtt NetworkStack.Outputs.VPCId
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "ELBSecurityGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - NetworkStack
+
+  # ElastiCache (Redis)
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join ['-', [!Ref Project, !Ref Environment, "redis-sg"]]
+      GroupDescription: !Join [' ', [!Ref Project, !Ref Environment, "Redis", "Security Group"]]
+      SecurityGroupIngress:
+        -
+          IpProtocol: TCP
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+
+      VpcId: !GetAtt NetworkStack.Outputs.VPCId
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment, "RedisSecurityGroup"]]
+        -
+          Key: Project
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - InstanceSecurityGroup
+
+  RedisSubnetGroup:
+    Type: "AWS::ElastiCache::SubnetGroup"
+    Properties:
+      Description: !Join [' ', [!Ref Project, !Ref Environment, "Redis", "Subnet Group"]]
+      CacheSubnetGroupName: !Join ['-', [!Ref Project, !Ref Environment, "Redis", "SubnetGroup"]]
+      SubnetIds:
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet1
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet2
+        - !GetAtt NetworkStack.Outputs.PrivateSubnet3
+    DependsOn:
+      - NetworkStack
+
+  ReplicationGroup:
+    Type: 'AWS::ElastiCache::ReplicationGroup'
+    Properties:
+      AutoMinorVersionUpgrade: true
+      CacheNodeType: !Ref RedisInstanceType
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      Engine: redis
+      EngineVersion: !Ref RedisEngineVersion
+      NumCacheClusters: 2
+      Port: 6379
+      AtRestEncryptionEnabled: true
+      PreferredMaintenanceWindow: sun:14:00-sun:15:00
+      ReplicationGroupDescription: !Join ['-', [!Ref Project, "redis"]]
+      ReplicationGroupId: !Join ['-', [!Ref Project, "redis"]]
+      SecurityGroupIds:
+        - !Ref RedisSecurityGroup
+      SnapshotRetentionLimit: !Ref RedisBackupRetention
+      SnapshotWindow: 13:00-14:00
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['-', [!Ref Project, !Ref Environment]]
+    DependsOn:
+      - RedisSecurityGroup
+      - RedisSubnetGroup
+  APIDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          -
+            DomainName: !GetAtt APIEBStack.Outputs.EBEndPoint
+            Id: APIEBOrigin
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+        Enabled: false
+        # below option can only be added after SSL certificate for those domain is configured in the setting
+        # Aliases:
+        #   - api.testdomain.com
+        DefaultCacheBehavior:
+          TargetOriginId: APIEBOrigin
+          SmoothStreaming: false
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: allow-all
+        CustomErrorResponses:
+          -
+            ErrorCode: 404
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          # AcmCertificateArn: ACM ARN
+
+Outputs:
+  RDSEndPoint:
+    Description: RDS End Point
+    Value: !GetAtt RDS.Endpoint.Address
+  RedisEndPoint:
+    Description: Redis End Point
+    Value: !GetAtt ReplicationGroup.PrimaryEndPoint.Address
+  S3BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref S3MediaBucket
+  S3DomainName:
+    Description: S3 Bucket Domain Name
+    Value: !GetAtt S3MediaBucket.DomainName

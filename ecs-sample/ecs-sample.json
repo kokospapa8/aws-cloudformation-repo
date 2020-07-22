@@ -255,7 +255,17 @@
               "MinCapacity" : 4,
               "MaxCapacity" : 8,
               "SecondsUntilAutoPause" : 1000
-          }
+          },
+          "VpcSecurityGroupIds:": [
+            {
+              "Ref": "sgecssamplemysql"
+            }
+          ],
+          "DBSubnetGroupName:": [
+            {
+              "Ref": "dbsubnetecssamplesubnetgroup"
+            }
+          ]
       }
     },
 
@@ -579,6 +589,28 @@
         },
         "InternetGatewayId": {
           "Ref": "IgwEcsSample"
+        }
+      }
+    },
+    "subnetroute3": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "RtbPublic"
+        },
+        "SubnetId": {
+          "Ref": "EcsSamplePublic1"
+        }
+      }
+    },
+    "subnetroute4": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "RtbPublic"
+        },
+        "SubnetId": {
+          "Ref": "EcsSamplePublic2"
         }
       }
     },

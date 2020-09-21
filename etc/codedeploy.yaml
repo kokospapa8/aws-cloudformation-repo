@@ -1,0 +1,289 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+# Parameters
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+  AmazonLinuxAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+#Resources
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.200.0.0/16
+      Tags:
+      - Key: Name
+        Value: Lab VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+    - AttachGateway
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: 10.200.10.0/24
+      AvailabilityZone:
+        Fn::Select:
+        - '0'
+        - Fn::GetAZs: ''
+      Tags:
+      - Key: Name
+        Value: Public Subnet 1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+    - AttachGateway
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: 10.200.15.0/24
+      AvailabilityZone:
+        Fn::Select:
+        - '1'
+        - Fn::GetAZs: ''
+      Tags:
+      - Key: Name
+        Value: Public Subnet 2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+    - AttachGateway
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: Public
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1
+      RouteTableId:
+        Ref: PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet2
+      RouteTableId:
+        Ref: PublicRouteTable
+
+  CodeDeploySG:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn:
+    - AttachGateway
+    Properties:
+      GroupName: CodeDeploySG
+      GroupDescription: Security Group For AutoScaling WebApp Servers
+      VpcId:
+        Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: CodeDeploySG
+
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: codedeploy-service-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codedeploy.amazonaws.com
+          Action:
+          - sts:AssumeRole
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: codedeploy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Action:
+            - s3:*
+            - codedeploy:CreateApplication
+            - codedeploy:RegisterApplicationRevision
+            - codedeploy:CreateDeploymentGroup
+            - codedeploy:CreateDeployment
+            - codedeploy:Get*
+            - codedeploy:List*
+            - codedeploy:Describe*
+            Effect: Allow
+            Resource: "*"
+          - Action:
+            - iam:PassRole
+            Effect: Allow
+            Resource: "arn:aws:iam::*:role/codedeploy-service-role"
+      Path: "/"
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: EC2Role
+
+  myLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: network
+      Name: MyLoadBalancer
+      SubnetMappings:
+        - AllocationId: !GetAtt
+            - FirstEIP
+            - AllocationId
+          SubnetId: !Ref PublicSubnet1
+        - AllocationId: !GetAtt
+            - SecondEIP
+            - AllocationId
+          SubnetId: !Ref PublicSubnet2
+
+  FirstEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: !Ref VPC
+
+  SecondEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: !Ref VPC
+
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn:
+          Ref: myTargetGroup
+      LoadBalancerArn:
+        Ref: myLoadBalancer
+      Port: 80
+      Protocol: TCP
+
+  myTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: myTargetGroup
+      Port: 80
+      Protocol: TCP
+      TargetType: instance
+      VpcId: !Ref VPC
+
+  CodeDeploy:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref 'EC2InstanceProfile'
+      ImageId: !Ref AmazonLinuxAMIID
+      InstanceType: t2.micro
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnet1
+          GroupSet:
+            - !Ref CodeDeploySG
+      KeyName: !Ref 'KeyName'
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -ex
+            yum -y update
+            yum -y install ruby wget
+            cd /home/ec2-user
+            wget https://aws-codedeploy-us-west-2.s3.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+            service codedeploy-agent start
+            mkdir /home/ec2-user/.aws
+            echo "[default]" > /home/ec2-user/.aws/config
+            echo "region = ${AWS::Region}" >> /home/ec2-user/.aws/config
+      Tags:
+      - Key: Name
+        Value: CodeDeploy
+
+  ReadOnlyGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: QLReadOnly
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+  
+  GroupAssignment:
+    Type: AWS::IAM::UserToGroupAddition
+    DependsOn: ReadOnlyGroup
+    Properties:
+      GroupName: QLReadOnly
+      Users:
+        - awsstudent
+
+Outputs:
+
+  EC2PublicIP:
+    Value: !GetAtt 'CodeDeploy.PublicIp'
+    Description: Public IP address of IoT Instance
+  Region:
+    Value: !Ref "AWS::Region"
+
+  CodeDeployRoleARN: 
+    Value: !GetAtt CodeDeployRole.Arn
